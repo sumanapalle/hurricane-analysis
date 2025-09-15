@@ -1,0 +1,11 @@
+dash>=3
+jupyter-dash>=0.4.2
+plotly>=5.20
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+beautifulsoup4>=4.12
+openpyxl>=3.1
+pycountry>=24.6
+voila>=0.5.7
+jupyter-server-proxy>=4.1
