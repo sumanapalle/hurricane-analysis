@@ -1,5 +1,7 @@
-# app.py — Hurricane Dashboard with ENSO Background + Lazy ENSO Granularity
-import io, re, warnings, requests
+# app.py — Hurricane Dashboard (Dash) for Hugging Face Spaces (Docker)
+
+import os
+import re, requests, io, warnings
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -24,26 +26,27 @@ METRIC_LABELS = {
 OBS_COLOR = "#d62728"
 ISSUER_COLORS = {"NOAA": "#1f77b4", "CSU": "#2c7fb8", "TSR": "#74add1"}
 
-# ------------------------- CERF allocations (provided) ------------------------ #
+# ------------------------- CERF allocations (with storm info) ---------------- #
+# NOTE: Amounts stored as integers for currency formatting performance.
 CERF_ROWS = [
-    {"Application Code":"14-RR-HTI-9285","Country":"Haiti","Window":"RR","Emergency Type":"Cholera","Emergency Group for Global Reporting":"Disease Outbreak","Year":2014,"Amount Approved":2668206,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"14-UFE-HTI-7984","Country":"Haiti","Window":"UF","Emergency Type":"Cholera","Emergency Group for Global Reporting":"Disease Outbreak","Year":2014,"Amount Approved":6205232,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"16-RR-HTI-23486","Country":"Haiti","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":3544711,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"16-RR-HTI-22873","Country":"Haiti","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":6838529,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"16-RR-CUB-22839","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":5352736,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"17-RR-DMA-27733","Country":"Dominica","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":3011838,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"17-RR-ATG-27500","Country":"Antigua and Barbuda","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":2154461,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"17-RR-CUB-27383","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":7999469,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"18-UF-HTI-28521","Country":"Haiti","Window":"UF","Emergency Type":"Multiple Emergencies","Emergency Group for Global Reporting":"Multiple Emergencies","Year":2018,"Amount Approved":8985177,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"19-RR-BHS-38922","Country":"Bahamas","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2019,"Amount Approved":1002151,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"20-RR-NIC-46275","Country":"Nicaragua","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":2000000,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"20-RR-HND-45959","Country":"Honduras","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":3901926,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"20-RR-SLV-43848","Country":"El Salvador","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":2999884,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"21-RR-COL-49434","Country":"Colombia","Window":"RR","Emergency Type":"Flood","Emergency Group for Global Reporting":"Natural Disaster","Year":2021,"Amount Approved":2006312,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"21-RR-HTI-48843","Country":"Haiti","Window":"RR","Emergency Type":"Earthquake","Emergency Group for Global Reporting":"Natural Disaster","Year":2021,"Amount Approved":7872943,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"21-RR-HTI-48351","Country":"Haiti","Window":"RR","Emergency Type":"Violence/Clashes","Emergency Group for Global Reporting":"Conflict-related","Year":2021,"Amount Approved":998966,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"22-RR-CUB-55712","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2022,"Amount Approved":7827734,"Region":"Latin America and the Caribbean"},
-    {"Application Code":"22-UF-HND-51277","Country":"Honduras","Window":"UF","Emergency Type":"Economic Disruption","Emergency Group for Global Reporting":"Unspecified Emergency","Year":2022,"Amount Approved":4994779,"Region":"Latin America and the Caribbean"},
+    {"Application Code":"14-RR-HTI-9285","Country":"Haiti","Window":"RR","Emergency Type":"Cholera","Emergency Group for Global Reporting":"Disease Outbreak","Year":2014,"Amount Approved":2668206,"Region":"Latin America and the Caribbean","Storm":"","Storm Type":"Hurricane Season","Category":""},
+    {"Application Code":"14-UFE-HTI-7984","Country":"Haiti","Window":"UF","Emergency Type":"Cholera","Emergency Group for Global Reporting":"Disease Outbreak","Year":2014,"Amount Approved":6205232,"Region":"Latin America and the Caribbean","Storm":"","Storm Type":"Hurricane Season","Category":""},
+    {"Application Code":"16-RR-HTI-23486","Country":"Haiti","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":3544711,"Region":"Latin America and the Caribbean","Storm":"Matthew","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"16-RR-HTI-22873","Country":"Haiti","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":6838529,"Region":"Latin America and the Caribbean","Storm":"Matthew","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"16-RR-CUB-22839","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2016,"Amount Approved":5352736,"Region":"Latin America and the Caribbean","Storm":"Matthew","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"17-RR-DMA-27733","Country":"Dominica","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":3011838,"Region":"Latin America and the Caribbean","Storm":"Maria","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"17-RR-ATG-27500","Country":"Antigua and Barbuda","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":2154461,"Region":"Latin America and the Caribbean","Storm":"Irma","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"17-RR-CUB-27383","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2017,"Amount Approved":7999469,"Region":"Latin America and the Caribbean","Storm":"Irma","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"18-UF-HTI-28521","Country":"Haiti","Window":"UF","Emergency Type":"Multiple Emergencies","Emergency Group for Global Reporting":"Multiple Emergencies","Year":2018,"Amount Approved":8985177,"Region":"Latin America and the Caribbean","Storm":"Matthew","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"19-RR-BHS-38922","Country":"Bahamas","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2019,"Amount Approved":1002151,"Region":"Latin America and the Caribbean","Storm":"Dorian","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"20-RR-NIC-46275","Country":"Nicaragua","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":2000000,"Region":"Latin America and the Caribbean","Storm":"Eta, Iota","Storm Type":"Hurricane","Category":"4, 4"},
+    {"Application Code":"20-RR-HND-45959","Country":"Honduras","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":3901926,"Region":"Latin America and the Caribbean","Storm":"Iota","Storm Type":"Hurricane","Category":"4"},
+    {"Application Code":"20-RR-SLV-43848","Country":"El Salvador","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2020,"Amount Approved":2999884,"Region":"Latin America and the Caribbean","Storm":"Amanda, Cristóbal","Storm Type":"Tropical Storm","Category":""},
+    {"Application Code":"21-RR-COL-49434","Country":"Colombia","Window":"RR","Emergency Type":"Flood","Emergency Group for Global Reporting":"Natural Disaster","Year":2021,"Amount Approved":2006312,"Region":"Latin America and the Caribbean","Storm":"","Storm Type":"Hurricane Season","Category":""},
+    {"Application Code":"21-RR-HTI-48843","Country":"Haiti","Window":"RR","Emergency Type":"Earthquake","Emergency Group for Global Reporting":"Natural Disaster","Year":2021,"Amount Approved":7872943,"Region":"Latin America and the Caribbean","Storm":"","Storm Type":"Hurricane Season","Category":""},
+    {"Application Code":"21-RR-HTI-48351","Country":"Haiti","Window":"RR","Emergency Type":"Violence/Clashes","Emergency Group for Global Reporting":"Conflict-related","Year":2021,"Amount Approved":998966,"Region":"Latin America and the Caribbean","Storm":"","Storm Type":"Hurricane Season","Category":""},
+    {"Application Code":"22-RR-CUB-55712","Country":"Cuba","Window":"RR","Emergency Type":"Storm","Emergency Group for Global Reporting":"Natural Disaster","Year":2022,"Amount Approved":7827734,"Region":"Latin America and the Caribbean","Storm":"Ian","Storm Type":"Hurricane","Category":"5"},
+    {"Application Code":"22-UF-HND-51277","Country":"Honduras","Window":"UF","Emergency Type":"Economic Disruption","Emergency Group for Global Reporting":"Unspecified Emergency","Year":2022,"Amount Approved":4994779,"Region":"Latin America and the Caribbean","Storm":"Eta, Iota","Storm Type":"Hurricane","Category":"4, 4"},
 ]
 CERF_DF = pd.DataFrame(CERF_ROWS)
 
@@ -247,7 +250,7 @@ def _load_oni_table():
     _ONI_CACHE = long
     return long
 
-# --- Derive coarse global bands (for main chart, with labels) ---
+# --- Derive coarse global bands (main chart) ---
 def _derive_enso_bands_global(long, thr_el=0.5, thr_la=-0.5, min_run=5):
     df = long.copy()
     df["phase"] = None
@@ -429,7 +432,8 @@ except Exception as _e:
 
 # --------------------------------- App Layout -------------------------------- #
 app = Dash(__name__, title="Seasonal Hurricanes – Forecasts vs Observed")
-server = app.server  # <- expose WSGI server for production runners (Spaces/Gunicorn)
+server = app.server  # <-- required for gunicorn/Spaces
+
 money = FormatTemplate.money(0)
 
 app.layout = html.Div([
@@ -528,7 +532,7 @@ app.layout = html.Div([
         ])
     ], style={"marginBottom":"16px"}),
 
-    # ---- CERF table ----
+    # ---- CERF table (hide Region; show Storm info) ----
     html.H3("CERF Allocations — Latin America & Caribbean"),
     dash_table.DataTable(
         id="cerf_table",
@@ -539,8 +543,10 @@ app.layout = html.Div([
             {"name": "Window", "id": "Window"},
             {"name": "Emergency Type", "id": "Emergency Type"},
             {"name": "Emergency Group for Global Reporting", "id": "Emergency Group for Global Reporting"},
+            {"name": "Storm", "id": "Storm"},
+            {"name": "Storm Type", "id": "Storm Type"},
+            {"name": "Category", "id": "Category"},
             {"name": "Amount Approved (USD)", "id": "Amount Approved", "type":"numeric", "format": money},
-            {"name": "Region", "id": "Region"},
         ],
         data=CERF_DF.sort_values(["Year","Country"]).to_dict("records"),
         sort_action="native", filter_action="native", page_size=10,
@@ -585,6 +591,51 @@ app.layout = html.Div([
 
 ], style={"fontFamily":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif","padding":"10px 14px"})
 
+# ----------------------------- CERF helpers ---------------------------------- #
+def _event_key(row):
+    """Key to dedupe 'events' per country-year: prefer Storm else Storm Type."""
+    storm = (row.get("Storm") or "").strip()
+    stype = (row.get("Storm Type") or "").strip()
+    return storm.lower() if storm else stype.lower() if stype else "unspecified"
+
+def _event_descriptor(row):
+    """Human-readable descriptor: 'Storm, Category X' or fallback to Storm Type."""
+    storm = (row.get("Storm") or "").strip()
+    stype = (row.get("Storm Type") or "").strip()
+    cat   = (row.get("Category") or "").strip()
+    if storm:
+        if cat:
+            return f"{storm}, Category {cat}"
+        elif stype:
+            return f"{storm} ({stype})"
+        else:
+            return storm
+    if stype:
+        return stype
+    if cat:
+        return f"Category {cat}"
+    return "Unspecified"
+
+def _cerf_annotation_lines(cerf_year_df):
+    """
+    Return lines like:
+      'Country (allocations_count) - unique storm descriptors'
+    - Count is total allocations for that country-year (rows in CERF_DF)
+    - Storm descriptors are unique by event key (Storm else Storm Type)
+    """
+    lines = []
+    for country, g in cerf_year_df.groupby("Country"):
+        n_alloc = int(len(g))  # number of allocations (rows)
+        seen = {}
+        for _, r in g.iterrows():
+            key = _event_key(r)
+            if key not in seen:
+                seen[key] = _event_descriptor(r)
+        descriptors = " | ".join(seen[k] for k in seen.keys())
+        lines.append((country, n_alloc, f"{country} ({n_alloc}) - {descriptors}" if descriptors else f"{country} ({n_alloc})"))
+    lines = [t[2] for t in sorted(lines, key=lambda x: (-x[1], x[0]))]
+    return lines
+
 # --------------------------------- Callbacks --------------------------------- #
 @app.callback(
     Output("forecast_vs_observed","figure"),
@@ -624,10 +675,10 @@ def update_chart(metric, lead, issuers, year_range, hoverData):
 
     fig.update_xaxes(tickmode="linear", dtick=1)
 
-    # --- ENSO GLOBAL BANDS from CPC ONI v5 (month-accurate, intensity-encoded) ---
+    # ENSO GLOBAL BANDS (coarse run-peak, with labels)
     _add_month_bands_global(fig, _ENSO_BANDS_GLOBAL, y0, y1, show_labels=True)
 
-    # Hover helper to make annotations + hover easier
+    # Hover helper
     years_span = list(range(int(y0), int(y1)+1))
     if years_span:
         vals = pd.concat([obs[metric].dropna(), fcs["value"].dropna()], ignore_index=True)
@@ -653,13 +704,12 @@ def update_chart(metric, lead, issuers, year_range, hoverData):
         except (TypeError, ValueError):
             hover_year = None
 
+    # CERF allocation box (allocations count per country-year; unique storms listed)
     if hover_year is not None:
         cerf_year = CERF_DF[CERF_DF["Year"] == hover_year]
         if not cerf_year.empty:
-            counts = (cerf_year.groupby("Country").size().reset_index(name="n")
-                      .sort_values(["n","Country"], ascending=[False, True]))
-            lines = "<br>".join(f"{r.Country} ({int(r.n)})" for _, r in counts.iterrows())
-            box_text = f"<b>CERF Allocations - {hover_year}</b><br>{lines}"
+            lines = _cerf_annotation_lines(cerf_year)
+            box_text = f"<b>CERF Allocations - {hover_year}</b><br>" + "<br>".join(lines)
         else:
             box_text = f"<b>CERF Allocations - {hover_year}</b><br>No allocations"
 
@@ -685,7 +735,7 @@ def update_chart(metric, lead, issuers, year_range, hoverData):
         hovermode="x",
         hoverdistance=100,
         spikedistance=100,
-        plot_bgcolor="#f3f4f6"  # light grey plot area
+        plot_bgcolor="#f3f4f6"
     )
     fig.update_xaxes(
         showspikes=True, spikemode="across", spikesnap="cursor",
@@ -732,8 +782,8 @@ def update_country_framework_status_table(year_range):
     Input("show_accuracy", "value"),
     Input("metric", "value"),
     Input("lead", "value"),
-    Input("issuers", "value"),
-    Input("year_range", "value"),
+    Input("issuers","value"),
+    Input("year_range","value"),
 )
 def update_accuracy(toggle_vals, metric, lead, issuers, year_range):
     show = ("on" in toggle_vals)
@@ -754,8 +804,6 @@ def update_accuracy(toggle_vals, metric, lead, issuers, year_range):
     acc_rows = []
     delta_fig = go.Figure()
     for issuer, gi in fcs.groupby("issuer"):
-        merged = pd.merge(gi, obs, on("year"), how="inner", validate="many_to_one")
-        # ^ Quick typo fix in case of copy: should be on="year"
         merged = pd.merge(gi, obs, on="year", how="inner", validate="many_to_one")
         if merged.empty:
             continue
@@ -838,7 +886,6 @@ def update_enso_detail(n_clicks, metric, lead, issuers, year_range):
     _add_enso_legend_traces(fig)
     return {"display":"block"}, fig
 
-# ---- Production runner (Spaces/Gunicorn) ----
+# ---- Run in Spaces/Docker ----
 if __name__ == "__main__":
-    import os
     app.run_server(host="0.0.0.0", port=int(os.environ.get("PORT", 7860)), debug=False)
